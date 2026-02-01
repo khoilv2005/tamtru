@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 # Nạp biến môi trường & logging
 load_dotenv()
-logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s %(message)s')
+logging.basicConfig(level=logging.ERROR, format='[%(asctime)s] %(levelname)s %(message)s')
 
 DB_TIMEOUT = 10
 DB_HOST = os.getenv("DB_HOST", "")
@@ -48,7 +48,7 @@ class DBManager:
             ca_path = os.path.join(os.getcwd(), 'ca.pem')
             if os.path.isfile(ca_path):
                 ssl_kwargs = { 'ssl': {'ca': ca_path} }
-                print(f"[DB] Sử dụng SSL với CA: {ca_path}")
+                pass
             try:
                 self.conn = pymysql.connect(
                     charset="utf8mb4",
@@ -64,7 +64,7 @@ class DBManager:
                     autocommit=False,
                     **ssl_kwargs,
                 )
-                print("[DB] Kết nối thành công." + (" (SSL)" if ssl_kwargs else " (NO SSL)"))
+                pass
             except pymysql.MySQLError as se:
                 if ssl_kwargs:
                     print(f"[DB] Lỗi kết nối SSL, thử không SSL: {se}")
@@ -82,7 +82,7 @@ class DBManager:
                         write_timeout=DB_TIMEOUT,
                         autocommit=False,
                     )
-                    print("[DB] Kết nối thành công (fallback NO SSL)")
+                    pass
                 else:
                     raise
         except pymysql.MySQLError as e:
@@ -91,7 +91,7 @@ class DBManager:
 
     def ensure_alive(self):
         if self.conn is None or not self.conn.open:
-            print("[DB] Reconnect...")
+            pass
             self._connect()
 
     def ensure_tables(self):
@@ -133,7 +133,7 @@ class DBManager:
                     write_timeout=DB_TIMEOUT,
                     autocommit=False,
                 )
-                print(f"[DB] Đang dùng database {DB_NAME}")
+                pass
             except pymysql.MySQLError as e:
                 print(f"[DB] Lỗi connect DB {DB_NAME}: {e}")
         self.ensure_alive()
@@ -173,7 +173,7 @@ class DBManager:
                     if commit:
                         self.conn.commit()
                     if attempts > 0:
-                        print(f"[DB] execute thành công sau retry (attempt {attempts+1})")
+                        pass
                     return cur.rowcount
             except pymysql.MySQLError as e:
                 last_err = e
@@ -209,7 +209,7 @@ class DBManager:
                     cur.execute(sql, params or ())
                     rows = cur.fetchall()
                     if attempts > 0:
-                        print(f"[DB] query thành công sau retry (attempt {attempts+1})")
+                        pass
                     return rows
             except pymysql.MySQLError as e:
                 last_err = e
@@ -231,7 +231,7 @@ class DBManager:
         if self.conn and self.conn.open:
             try:
                 self.conn.close()
-                print("[DB] Đã đóng kết nối.")
+                pass
             except Exception:
                 pass
 
@@ -253,8 +253,8 @@ def main():
     # Tạo connection DB persistent (giữ ấm)
     _ = DBManager.instance()
     app = Application.builder().token(TOKEN).build()
-    # Gửi đếm 1->5 để xác nhận bot hoạt động & CHAT_ID đúng
-    app.job_queue.run_once(send_initial_messages, when=0)
+    # Bỏ gửi đếm 1->5 để xác nhận bot hoạt động & CHAT_ID đúng
+    # app.job_queue.run_once(send_initial_messages, when=0)
     
     async def chatid(update, context):
         await update.message.reply_text(f"Chat ID hiện tại: {update.effective_chat.id}")
@@ -272,36 +272,65 @@ def main():
     app.add_handler(CommandHandler("pingdb", pingdb))
     
     async def createuser(update, context):
-        """/createuser Ten|NgaySinh(D/M/Y)|CCCD|Phong|NgayDangKy(D/M/Y)"""
+        """/createuser Ten|NgaySinh|CCCD|Phong|NgayDK [; Ten|...]
+        Hỗ trợ thêm nhiều ngườii, cách nhau bằng dấu ;
+        VD: /createuser NguyenVanA|20/5/1995|012345678901|101|1/9/2024 ; TranVanB|15/3/1990|098765432109|102|1/9/2024"""
         raw = " ".join(context.args)
         if not raw or '|' not in raw:
             await update.message.reply_text(
-                "Dùng: /createuser Ten|NgaySinh(D/M/Y)|CCCD|Phong|NgayDangKy(D/M/Y)\nVD: /createuser NguyenVanA|20/5/1995|012345678901|101|1/9/2024"
+                "Dùng: /createuser Ten|NgaySinh(D/M/Y)|CCCD|Phong|NgayDangKy(D/M/Y)\n"
+                "VD: /createuser NguyenVanA|20/5/1995|012345678901|101|1/9/2024\n\n"
+                "Thêm nhiều ngườii (cách nhau bởi dấu ;):\n"
+                "/createuser NguoiA|...|...|...|... ; NguoiB|...|...|...|... ; NguoiC|..."
             )
             return
-        parts = [p.strip() for p in raw.split('|')]
-        if len(parts) != 5:
-            await update.message.reply_text("Sai định dạng. Cần 5 phần tử phân cách bằng |")
+        
+        # Tách nhiều ngườii bằng dấu ;
+        entries = [e.strip() for e in raw.split(';') if e.strip()]
+        if not entries:
+            await update.message.reply_text("Không có dữ liệu hợp lệ")
             return
-        name, birth_s, cccd, room, reg_s = parts
-        try:
-            birth = datetime.strptime(birth_s, "%d/%m/%Y").date()
-            reg = datetime.strptime(reg_s, "%d/%m/%Y").date()
-        except ValueError:
-            await update.message.reply_text("Ngày không hợp lệ. Định dạng đúng: D/M/Y, ví dụ 1/9/2024")
-            return
-        # Tính expiry +2 năm (xử lý 29/2)
-        try:
-            expiry = reg.replace(year=reg.year + 2)
-        except ValueError:
-            expiry = reg.replace(month=2, day=28, year=reg.year + 2)
-        sql = ("INSERT INTO users (name, birth_date, cccd, room_number, registration_date, expiry_date) "
-               "VALUES (%s, %s, %s, %s, %s, %s)")
-        try:
-            await asyncio.to_thread(DBM.execute, sql, (name, birth, cccd, room, reg, expiry), True)
-            await update.message.reply_text(f"OK: {name} (hết hạn {expiry.strftime('%d/%m/%Y')})")
-        except Exception as e:
-            await update.message.reply_text(f"Lỗi: {e}")
+        
+        results = []
+        success_count = 0
+        
+        for entry in entries:
+            parts = [p.strip() for p in entry.split('|')]
+            if len(parts) != 5:
+                results.append(f"❌ Sai định dạng (cần 5 phần tử): {entry[:50]}...")
+                continue
+            
+            name, birth_s, cccd, room, reg_s = parts
+            
+            try:
+                birth = datetime.strptime(birth_s, "%d/%m/%Y").date()
+                reg = datetime.strptime(reg_s, "%d/%m/%Y").date()
+            except ValueError:
+                results.append(f"❌ Ngày không hợp lệ: {name}")
+                continue
+            
+            # Tính expiry +2 năm (xử lý 29/2)
+            try:
+                expiry = reg.replace(year=reg.year + 2)
+            except ValueError:
+                expiry = reg.replace(month=2, day=28, year=reg.year + 2)
+            
+            sql = ("INSERT INTO users (name, birth_date, cccd, room_number, registration_date, expiry_date) "
+                   "VALUES (%s, %s, %s, %s, %s, %s)")
+            try:
+                await asyncio.to_thread(DBM.execute, sql, (name, birth, cccd, room, reg, expiry), True)
+                results.append(f"✅ {name} (hết hạn {expiry.strftime('%d/%m/%Y')})")
+                success_count += 1
+            except Exception as e:
+                error_msg = str(e)
+                if "Duplicate entry" in error_msg or "UNIQUE" in error_msg.upper():
+                    results.append(f"❌ {name}: CCCD {cccd} đã tồn tại")
+                else:
+                    results.append(f"❌ {name}: {error_msg[:100]}")
+        
+        # Gửi kết quả
+        summary = f"📊 Kết quả: {success_count}/{len(entries)} thành công\n\n"
+        await update.message.reply_text(summary + "\n".join(results))
 
     app.add_handler(CommandHandler("createuser", createuser))
 
@@ -431,7 +460,7 @@ def main():
     app.add_handler(CommandHandler("kiemtra", kiemtra))
     
     async def job_kiemtra(context: ContextTypes.DEFAULT_TYPE):
-        logging.info("Chạy job_kiemtra...")
+    # Không log info trạng thái, chỉ log lỗi nếu có
         if not CHAT_ID:
             logging.warning("CHAT_ID trống - không gửi được job kiemtra")
             return
@@ -456,7 +485,7 @@ def main():
                 soon.append(f"Còn {delta}d: " + line)
         if not expired and not soon:
             await context.bot.send_message(chat_id=CHAT_ID, text="[kiemtra job] Không ai hết hạn hay trong 30 ngày.")
-            logging.info("Job xong: không có dữ liệu gửi")
+            pass
             return
         parts = []
         if expired:
@@ -468,12 +497,11 @@ def main():
             if len(soon) > 60:
                 parts.append(f"... còn {len(soon)-60} sắp hết hạn nữa")
         await context.bot.send_message(chat_id=CHAT_ID, text="\n\n".join(parts))
-        logging.info("Job gửi xong: %d expired, %d soon", len(expired), len(soon))
+    pass
 
     # Lên lịch chạy mỗi 12 giờ kể từ lúc bot start
     app.job_queue.run_repeating(job_kiemtra, interval=60*60*12, first=10, name="kiemtra_12h")
-    logging.info("Đã lên lịch job kiểm tra mỗi 12h (lần đầu sau 10s)")
-    print("Bot chạy: /chatid để lấy CHAT_ID, /pingdb kiểm tra DB, /kiemtra xem thủ công.")
+    pass
     app.run_polling(poll_interval=1.0)
 
 
