@@ -386,7 +386,7 @@ def main():
 
     async def kiemtra(update, context):
         """/kiemtra [CCCD]
-        - Không tham số: liệt kê đã hết hạn và còn <=30 ngày
+        - Không tham số: liệt kê đã hết hạn và còn <=15 ngày
         - Có CCCD: trả về trạng thái 1 người
         """
         today = date.today()
@@ -426,7 +426,7 @@ def main():
             await update.message.reply_text(msg)
             return
         # Trường hợp liệt kê chung
-        limit = today + timedelta(days=30)
+        limit = today + timedelta(days=15)
         sql = "SELECT name, cccd, room_number, expiry_date FROM users WHERE expiry_date <= %s ORDER BY expiry_date ASC"
         try:
             rows = await asyncio.to_thread(DBM.query, sql, (limit,))
@@ -444,7 +444,7 @@ def main():
             else:
                 soon.append(f"Còn {delta}d: " + line)
         if not expired and not soon:
-            await update.message.reply_text("Không có ai hết hạn hay trong 30 ngày tới.")
+            await update.message.reply_text("Không có ai hết hạn hay trong 15 ngày tới.")
             return
         parts = []
         if expired:
@@ -452,7 +452,7 @@ def main():
             if len(expired) > 100:
                 parts.append(f"... còn {len(expired)-100} hết hạn nữa")
         if soon:
-            parts.append("-- SẮP HẾT (<=30 ngày) --\n" + "\n".join(soon[:100]))
+            parts.append("-- SẮP HẾT (<=15 ngày) --\n" + "\n".join(soon[:100]))
             if len(soon) > 100:
                 parts.append(f"... còn {len(soon)-100} sắp hết hạn nữa")
         await update.message.reply_text("\n\n".join(parts))
@@ -465,7 +465,7 @@ def main():
             logging.warning("CHAT_ID trống - không gửi được job kiemtra")
             return
         today = date.today()
-        limit = today + timedelta(days=30)
+        limit = today + timedelta(days=15)
         sql = "SELECT name, cccd, room_number, expiry_date FROM users WHERE expiry_date <= %s ORDER BY expiry_date ASC"
         try:
             rows = await asyncio.to_thread(DBM.query, sql, (limit,))
@@ -484,7 +484,7 @@ def main():
             else:
                 soon.append(f"Còn {delta}d: " + line)
         if not expired and not soon:
-            await context.bot.send_message(chat_id=CHAT_ID, text="[kiemtra job] Không ai hết hạn hay trong 30 ngày.")
+            await context.bot.send_message(chat_id=CHAT_ID, text="[kiemtra job] Không ai hết hạn hay trong 15 ngày.")
             pass
             return
         parts = []
@@ -493,7 +493,7 @@ def main():
             if len(expired) > 60:
                 parts.append(f"... còn {len(expired)-60} hết hạn nữa")
         if soon:
-            parts.append("-- SẮP HẾT (<=30 ngày) --\n" + "\n".join(soon[:60]))
+            parts.append("-- SẮP HẾT (<=15 ngày) --\n" + "\n".join(soon[:60]))
             if len(soon) > 60:
                 parts.append(f"... còn {len(soon)-60} sắp hết hạn nữa")
         await context.bot.send_message(chat_id=CHAT_ID, text="\n\n".join(parts))
